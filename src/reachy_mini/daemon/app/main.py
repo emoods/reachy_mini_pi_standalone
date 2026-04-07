@@ -283,7 +283,10 @@ def create_app(args: Args, health_check_event: asyncio.Event | None = None) -> F
 def run_app(args: Args) -> None:
     """Run the FastAPI app with Uvicorn."""
     # Configure logging to ensure all logs go to stderr (captured by systemd)
+    import os
     import sys
+
+    print("[DAEMON ENV]", *sorted(f"{k}={v}" for k, v in os.environ.items()), sep="\n  ", flush=True)
 
     root_logger = logging.getLogger()
     root_logger.setLevel(args.log_level)

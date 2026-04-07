@@ -126,6 +126,8 @@ class ReachyMiniApp(ABC):
             settings_app_t.start()
 
         try:
+            import os
+            print("[APP ENV]", *sorted(f"{k}={v}" for k, v in os.environ.items()), sep="\n  ", flush=True)
             self.logger.info("Starting Reachy Mini app...")
             self.logger.info(f"Using media backend: {self.media_backend}")
             self.logger.info(f"Daemon on localhost: {self.daemon_on_localhost}")
