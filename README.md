@@ -13,10 +13,10 @@
 
 **Choose your platform to access the specific guide:**
 
-| **🤖 Reachy Mini (Wireless)** | **🔌 Reachy Mini Lite** | **💻 Simulation** |
-| :---: | :---: | :---: |
-| The full autonomous experience.<br>Raspberry Pi CM4 + Battery + WiFi. | The developer version.<br>USB connection to your computer. | No hardware required.<br>Prototype in MuJoCo. |
-| 👉 [**Go to Wireless Guide**](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini/get_started) | 👉 [**Go to Lite Guide**](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini_lite/get_started) | 👉 [**Go to Simulation**](https://huggingface.co/docs/reachy_mini/platforms/simulation/get_started) |
+| **🤖 Reachy Mini (Wireless)** | **🔌 Reachy Mini Lite** | **💻 Simulation** | **🖥️ Standalone** |
+| :---: | :---: | :---: | :---: |
+| The full autonomous experience.<br>Raspberry Pi CM4 + Battery + WiFi. | The developer version.<br>USB connection to your computer. | No hardware required.<br>Prototype in MuJoCo. | Run a Lite untethered on a<br>Raspberry Pi 4/5 over WiFi. |
+| 👉 [**Go to Wireless Guide**](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini/get_started) | 👉 [**Go to Lite Guide**](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini_lite/get_started) | 👉 [**Go to Simulation**](https://huggingface.co/docs/reachy_mini/platforms/simulation/get_started) | 👉 [**Standalone Setup**](#%EF%B8%8F-standalone-mode-reachy-mini-lite-on-raspberry-pi) |
 
 
 
@@ -79,6 +79,101 @@ Reachy Mini robots are sold as kits and generally take **2 to 3 hours** to assem
 
 * **Reachy Mini (Wireless):** Runs onboard (RPi CM4), autonomous, includes IMU. [See specs](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini/hardware).
 * **Reachy Mini Lite:** Runs on your PC, powered via wall outlet. [See specs](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini_lite/hardware).
+
+<br>
+
+## 🖥️ Standalone Mode: Reachy Mini Lite on Raspberry Pi
+
+Run a USB-tethered Reachy Mini Lite on a standalone Raspberry Pi (4, 5, or similar Linux SBC) as a network-accessible daemon — giving you the wireless Reachy Mini experience without the CM4 Compute Module.
+
+Tested on **Raspberry Pi 4** (4GB RAM) running Debian Trixie. Should also work on **Raspberry Pi 5**, **Raspberry Pi Zero 2 W**, or other ARM64 Linux boards with USB ports.
+
+### What it does
+
+The `--standalone` flag:
+- Uses USB serial (CH34x) for motor control — no UART, no IMU
+- Reports as wireless-capable so the desktop app enables WebRTC camera streaming
+- Binds to all network interfaces (accessible from other machines on your LAN)
+- Auto-generates `~/.asoundrc` for the Reachy Mini Audio card at startup
+- Uses hardware H.264 encoding (`v4l2h264enc`) when available, falls back to software VP8
+
+### Prerequisites
+
+| Component | Details |
+|-----------|---------|
+| **Board** | Raspberry Pi 4 or Pi 5 (4GB+ RAM recommended), Raspberry Pi OS or Debian Trixie |
+| **GStreamer** | `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, `gstreamer1.0-nice` |
+| **webrtcsink** | `gst-plugins-rs` v0.14.x — build from source with `cargo cinstall -p gst-plugin-webrtc` ([instructions](https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs)) |
+| **udev rules** | Grant USB access to the Lite's audio/camera devices (VID `38fb`) |
+
+### Quick start
+
+```bash
+# Clone and install
+git clone https://github.com/pollen-robotics/reachy_mini.git
+cd reachy_mini
+uv sync
+
+# Set GStreamer plugin path (adjust if you installed elsewhere)
+export GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0
+
+# Run the daemon
+reachy-mini-daemon --standalone
+```
+
+### udev rules
+
+Create `/etc/udev/rules.d/99-reachy-mini-lite.rules`:
+
+```
+SUBSYSTEM=="usb", ATTR{idVendor}=="38fb", ATTR{idProduct}=="1001", MODE="0666"
+SUBSYSTEM=="usb", ATTR{idVendor}=="38fb", ATTR{idProduct}=="1002", MODE="0666"
+```
+
+Then reload: `sudo udevadm control --reload-rules && sudo udevadm trigger`
+
+### systemd user service (auto-start at boot)
+
+```ini
+# ~/.config/systemd/user/reachy-mini-daemon.service
+[Unit]
+Description=Reachy Mini Daemon
+After=pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/reachy_mini
+Environment=GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0
+ExecStart=/home/pi/reachy_mini/.venv/bin/reachy-mini-daemon --standalone
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable reachy-mini-daemon
+loginctl enable-linger $USER   # start service at boot without login
+```
+
+### Platform notes and known issues
+
+| Board | HW H.264 | Notes |
+|-------|----------|-------|
+| **Raspberry Pi 4** | Yes (`v4l2h264enc` via VideoCore) | Tested. 1080p@30fps works. 60fps does NOT — the VideoCore encoder will fail with "Failed to process frame". |
+| **Raspberry Pi 5** | Yes (`v4l2h264enc`) | Should work. Faster encoder may handle higher framerates. Not yet tested. |
+| **Raspberry Pi Zero 2 W** | No | Falls back to software VP8 encoding. Expect higher latency and CPU usage. |
+| **Other ARM64 SBCs** | Varies | If `gst-inspect-1.0 v4l2h264enc` finds the element, HW encoding will be used automatically. Otherwise falls back to software VP8. |
+
+**Common issues:**
+
+- **Audio card number shifts between reboots.** The Reachy Mini Audio USB device may appear as a different ALSA card number after reboot. The `--standalone` flag regenerates `~/.asoundrc` at every startup to handle this automatically.
+- **Camera not detected on startup.** If another process (or a previous daemon instance) holds `/dev/video0`, the GStreamer device monitor may not find the camera. Ensure no other process is using the camera before starting the daemon.
+- **`webrtcsink` not found.** The `gst-plugins-rs` package is not available from standard Debian/Ubuntu repos — you must build it from source. See the [build instructions](https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs). Cross-compiling via Docker with `--platform linux/arm64` on an x86 host is significantly faster than building natively on the Pi.
+- **`rtpgccbwe` warning.** A non-fatal warning about missing bandwidth estimation. The `gst-plugin-rtp` Rust plugin is not installed. Video streaming works fine without it — you just won't have WebRTC congestion control.
+- **PipeWire required for camera detection.** The GStreamer device monitor needs PipeWire running to discover video devices. If running as a system service, the daemon won't have access to PipeWire. Use a **user-level** systemd service (as shown above) instead.
 
 <br>
 
