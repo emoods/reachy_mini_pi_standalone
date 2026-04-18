@@ -2,6 +2,7 @@
 
 [![Ask on HuggingChat](https://img.shields.io/badge/Read_the-Documentation-yellow?logo=huggingface&logoColor=yellow)](https://huggingface.co/docs/reachy_mini/)
 [![Discord](https://img.shields.io/badge/Discord-Join_the_Community-7289DA?logo=discord&logoColor=white)](https://discord.gg/Y7FgMqHsub)
+[![Downloads](https://img.shields.io/github/downloads/emoods/reachy_mini_pi_standalone/total?label=downloads&logo=github)](https://github.com/emoods/reachy_mini_pi_standalone/releases)
 
 **Reachy Mini is an open-source, expressive robot made for hackers and AI builders.**
 
