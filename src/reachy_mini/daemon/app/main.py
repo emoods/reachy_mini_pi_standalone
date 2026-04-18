@@ -65,6 +65,7 @@ class Args:
     log_file: str | None = None
 
     wireless_version: bool = False
+    standalone: bool = False
     desktop_app_daemon: bool = False
 
     serialport: str = "auto"
@@ -100,7 +101,7 @@ def create_app(args: Args, health_check_event: asyncio.Event | None = None) -> F
     localhost_only = (
         args.localhost_only
         if args.localhost_only is not None
-        else (False if args.wireless_version else True)
+        else (False if (args.wireless_version or args.standalone) else True)
     )
 
     @asynccontextmanager
@@ -211,6 +212,7 @@ def create_app(args: Args, health_check_event: asyncio.Event | None = None) -> F
     app.state.daemon = Daemon(
         robot_name=args.robot_name,
         wireless_version=args.wireless_version,
+        standalone=args.standalone,
         desktop_app_daemon=args.desktop_app_daemon,
         log_level=args.log_level,
         no_media=args.no_media,
@@ -431,6 +433,18 @@ def main() -> None:
         help="Use the wireless version of Reachy Mini (default: False).",
     )
     parser.add_argument(
+        "--standalone",
+        action="store_true",
+        default=default_args.standalone,
+        help=(
+            "Run a USB-tethered Reachy Mini Lite on a standalone single-board "
+            "computer (e.g. Raspberry Pi 4) as a network-accessible daemon.  "
+            "Uses USB serial (not UART), skips IMU init, and reports the "
+            "daemon as wireless-capable so the desktop app enables WebRTC "
+            "camera streaming.  Implies --no-localhost-only."
+        ),
+    )
+    parser.add_argument(
         "--desktop-app-daemon",
         action="store_true",
         default=default_args.desktop_app_daemon,
@@ -639,6 +653,10 @@ def main() -> None:
         # Check and fix restore venv if it has legacy editable install
         check_and_fix_restore_venv()
 
+    if args.wireless_version or args.standalone:
+        # Ensure ~/.asoundrc is configured for the Reachy Mini Audio card.
+        # In standalone mode the ALSA card number may change between boots,
+        # so regenerating at startup keeps it correct.
         if check_reachymini_asoundrc():
             logging.getLogger().info(
                 "~/.asoundrc correctly configured for Reachy Mini Audio."
