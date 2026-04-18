@@ -40,11 +40,19 @@ class Daemon:
         log_level: str = "INFO",
         robot_name: str = "reachy_mini",
         wireless_version: bool = False,
+        standalone: bool = False,
         desktop_app_daemon: bool = False,
         no_media: bool = False,
         sim_mode: SimulationMode = SimulationMode.NONE,
     ) -> None:
-        """Initialize the Reachy Mini daemon."""
+        """Initialize the Reachy Mini daemon.
+
+        Args:
+            standalone: Run a USB-tethered Reachy Mini Lite on a standalone
+                SBC (e.g. Raspberry Pi 4).  Uses USB serial (not UART),
+                skips IMU init, but reports ``wireless_version=True`` in the
+                daemon status so the desktop app enables WebRTC streaming.
+        """
         self.log_level = log_level
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(self.log_level)
@@ -52,6 +60,7 @@ class Daemon:
         self.robot_name = robot_name
 
         self.wireless_version = wireless_version
+        self.standalone = standalone
         self.desktop_app_daemon = desktop_app_daemon
         self.no_media = no_media
 
@@ -64,10 +73,16 @@ class Daemon:
             package_version = None
             self.logger.warning("Could not determine daemon version")
 
+        # In standalone mode, report wireless_version=True so the desktop app
+        # enables WebRTC camera streaming, even though the hardware is a
+        # USB-tethered Lite.  The internal self.wireless_version remains False
+        # to preserve USB serial port detection and skip IMU init.
+        report_wireless = wireless_version or standalone
+
         self._status = DaemonStatus(
             robot_name=robot_name,
             state=DaemonState.NOT_INITIALIZED,
-            wireless_version=wireless_version,
+            wireless_version=report_wireless,
             desktop_app_daemon=desktop_app_daemon,
             simulation_enabled=None,
             mockup_sim_enabled=None,
