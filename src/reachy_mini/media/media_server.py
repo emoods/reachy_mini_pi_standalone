@@ -467,8 +467,12 @@ class GstMediaServer:
         pipeline.add(queue_webrtc)
         tee.link(queue_webrtc)
 
-        if is_rpi:
-            # RPi: use hardware H264 encoder (webrtcsink doesn't have v4l2h264enc)
+        # Use hardware H264 encoder when available (RPi 4/CM4 have v4l2h264enc)
+        use_hw_h264 = is_rpi or (
+            platform.system() == "Linux"
+            and Gst.ElementFactory.find("v4l2h264enc") is not None
+        )
+        if use_hw_h264:
             self._build_rpi_encoder_branch(queue_webrtc, pipeline, webrtcsink)
         else:
             # All other platforms: feed raw video, let webrtcsink handle encoding
@@ -722,30 +726,44 @@ class GstMediaServer:
         """Build the RPi hardware H264 encoder branch.
 
         webrtcsink does not have v4l2h264enc, so we encode explicitly on RPi.
+        A videorate element caps the framerate at 30fps to stay within the
+        hardware encoder's limits (Pi 4 VideoCore handles 1080p30 reliably).
         """
+        # Cap framerate to 30fps for the hardware encoder
+        videorate = Gst.ElementFactory.make("videorate", "hw_enc_videorate")
+        caps_30fps = Gst.Caps.from_string(
+            f"video/x-raw,framerate=30/1"
+        )
+        capsfilter_fps = Gst.ElementFactory.make("capsfilter", "hw_enc_fps_cap")
+        capsfilter_fps.set_property("caps", caps_30fps)
+
         v4l2h264enc = Gst.ElementFactory.make("v4l2h264enc")
         extra_controls_structure = Gst.Structure.new_empty("extra-controls")
         extra_controls_structure.set_value("repeat_sequence_header", 1)
         extra_controls_structure.set_value("video_bitrate", 5_000_000)
-        extra_controls_structure.set_value("h264_i_frame_period", 60)
-        extra_controls_structure.set_value("video_gop_size", 256)
+        extra_controls_structure.set_value("h264_i_frame_period", 30)
+        extra_controls_structure.set_value("video_gop_size", 120)
         v4l2h264enc.set_property("extra-controls", extra_controls_structure)
 
-        # H264 Level 3.1 + Constrained Baseline for Safari/WebKit compatibility
+        # H264 Level 4 + Constrained Baseline for 1080p support + Safari/WebKit compatibility
         caps_h264 = Gst.Caps.from_string(
             "video/x-h264,stream-format=byte-stream,alignment=au,"
-            "level=(string)3.1,profile=(string)constrained-baseline"
+            "level=(string)4,profile=(string)constrained-baseline"
         )
         capsfilter_h264 = Gst.ElementFactory.make("capsfilter")
         capsfilter_h264.set_property("caps", caps_h264)
 
-        if not all([v4l2h264enc, capsfilter_h264]):
+        if not all([videorate, capsfilter_fps, v4l2h264enc, capsfilter_h264]):
             raise RuntimeError("Failed to create RPi H264 encoder elements")
 
+        pipeline.add(videorate)
+        pipeline.add(capsfilter_fps)
         pipeline.add(v4l2h264enc)
         pipeline.add(capsfilter_h264)
 
-        queue_webrtc.link(v4l2h264enc)
+        queue_webrtc.link(videorate)
+        videorate.link(capsfilter_fps)
+        capsfilter_fps.link(v4l2h264enc)
         v4l2h264enc.link(capsfilter_h264)
         capsfilter_h264.link(webrtcsink)
 
