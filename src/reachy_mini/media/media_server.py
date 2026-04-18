@@ -467,9 +467,15 @@ class GstMediaServer:
         pipeline.add(queue_webrtc)
         tee.link(queue_webrtc)
 
-        if is_rpi:
-            # RPi: use hardware H264 encoder (webrtcsink doesn't have v4l2h264enc)
-            self._build_rpi_encoder_branch(queue_webrtc, pipeline, webrtcsink)
+        # Use hardware V4L2 H.264 encoder when available.  On Raspberry Pi
+        # boards (Pi 4, CM4) the VideoCore encoder is exposed as v4l2h264enc
+        # and is significantly faster and lighter than software VP8/VP9.
+        use_hw_h264 = is_rpi or (
+            platform.system() == "Linux"
+            and Gst.ElementFactory.find("v4l2h264enc") is not None
+        )
+        if use_hw_h264:
+            self._build_hw_h264_encoder_branch(queue_webrtc, pipeline, webrtcsink)
         else:
             # All other platforms: feed raw video, let webrtcsink handle encoding
             queue_webrtc.link(webrtcsink)
@@ -713,41 +719,74 @@ class GstMediaServer:
             videoconvert_ipc.link(capsfilter_ipc)
             capsfilter_ipc.link(ipc_sink)
 
-    def _build_rpi_encoder_branch(
+    def _build_hw_h264_encoder_branch(
         self,
         queue_webrtc: Gst.Element,
         pipeline: Gst.Pipeline,
         webrtcsink: Gst.Element,
     ) -> None:
-        """Build the RPi hardware H264 encoder branch.
+        """Build the hardware V4L2 H.264 encoder branch.
 
-        webrtcsink does not have v4l2h264enc, so we encode explicitly on RPi.
+        Uses the kernel V4L2 ``v4l2h264enc`` element (available on
+        Raspberry Pi 4 / CM4 via VideoCore).  webrtcsink does not
+        natively discover v4l2h264enc, so we insert it explicitly.
+
+        A ``videorate`` element is inserted when the source framerate
+        exceeds 30 fps because the Pi 4 hardware encoder reliably
+        handles 1080p @ 30 fps but may fail at higher rates.
+
+        The H.264 level is chosen based on the negotiated resolution:
+        level 4 for widths > 1280 (1080p+), level 3.1 otherwise (720p).
         """
-        v4l2h264enc = Gst.ElementFactory.make("v4l2h264enc")
-        extra_controls_structure = Gst.Structure.new_empty("extra-controls")
-        extra_controls_structure.set_value("repeat_sequence_header", 1)
-        extra_controls_structure.set_value("video_bitrate", 5_000_000)
-        extra_controls_structure.set_value("h264_i_frame_period", 60)
-        extra_controls_structure.set_value("video_gop_size", 256)
-        v4l2h264enc.set_property("extra-controls", extra_controls_structure)
+        all_elements: list[Gst.Element] = []
 
-        # H264 Level 3.1 + Constrained Baseline for Safari/WebKit compatibility
+        # --- optional framerate cap ---
+        if self.framerate > 30:
+            hw_enc_fps = 30
+            self._logger.info(
+                f"Hardware encoder: capping framerate from {self.framerate} "
+                f"to {hw_enc_fps} fps"
+            )
+            videorate = Gst.ElementFactory.make("videorate", "hw_enc_videorate")
+            caps_fps = Gst.Caps.from_string(f"video/x-raw,framerate={hw_enc_fps}/1")
+            capsfilter_fps = Gst.ElementFactory.make("capsfilter", "hw_enc_fps_cap")
+            capsfilter_fps.set_property("caps", caps_fps)
+            all_elements += [videorate, capsfilter_fps]
+        else:
+            hw_enc_fps = self.framerate
+
+        # --- v4l2h264enc ---
+        v4l2h264enc = Gst.ElementFactory.make("v4l2h264enc")
+        extra_controls = Gst.Structure.new_empty("extra-controls")
+        extra_controls.set_value("repeat_sequence_header", 1)
+        extra_controls.set_value("video_bitrate", 5_000_000)
+        extra_controls.set_value("h264_i_frame_period", hw_enc_fps)
+        extra_controls.set_value("video_gop_size", hw_enc_fps * 4)
+        v4l2h264enc.set_property("extra-controls", extra_controls)
+        all_elements.append(v4l2h264enc)
+
+        # --- H.264 caps: pick level based on resolution ---
+        h264_level = "4" if self.resolution[0] > 1280 else "3.1"
         caps_h264 = Gst.Caps.from_string(
             "video/x-h264,stream-format=byte-stream,alignment=au,"
-            "level=(string)3.1,profile=(string)constrained-baseline"
+            f"level=(string){h264_level},profile=(string)constrained-baseline"
         )
-        capsfilter_h264 = Gst.ElementFactory.make("capsfilter")
+        capsfilter_h264 = Gst.ElementFactory.make("capsfilter", "hw_enc_h264_caps")
         capsfilter_h264.set_property("caps", caps_h264)
+        all_elements.append(capsfilter_h264)
 
-        if not all([v4l2h264enc, capsfilter_h264]):
-            raise RuntimeError("Failed to create RPi H264 encoder elements")
+        if not all(all_elements):
+            raise RuntimeError("Failed to create hardware H.264 encoder elements")
 
-        pipeline.add(v4l2h264enc)
-        pipeline.add(capsfilter_h264)
+        for elem in all_elements:
+            pipeline.add(elem)
 
-        queue_webrtc.link(v4l2h264enc)
-        v4l2h264enc.link(capsfilter_h264)
-        capsfilter_h264.link(webrtcsink)
+        # Link: queue_webrtc → [videorate → fps_cap →] v4l2h264enc → h264_caps → webrtcsink
+        prev = queue_webrtc
+        for elem in all_elements:
+            prev.link(elem)
+            prev = elem
+        prev.link(webrtcsink)
 
     def _configure_audio(self, pipeline: Gst.Pipeline, webrtcsink: Gst.Element) -> None:
         """Configure the audio capture pipeline.
