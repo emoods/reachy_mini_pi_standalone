@@ -103,7 +103,7 @@ The `--standalone` flag:
 |-----------|---------|
 | **Board** | Raspberry Pi 4 or Pi 5 (4GB+ RAM recommended), Raspberry Pi OS or Debian Trixie |
 | **GStreamer** | `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, `gstreamer1.0-nice` |
-| **webrtcsink** | `gst-plugins-rs` v0.14.x — build from source with `cargo cinstall -p gst-plugin-webrtc` ([instructions](https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs)) |
+| **webrtcsink** | `gst-plugins-rs` v0.14.x — [download pre-built binary](#installing-webrtcsink) or [build from source](#building-webrtcsink-from-source) |
 | **udev rules** | Grant USB access to the Lite's audio/camera devices (VID `38fb`) |
 
 ### Quick start
@@ -157,6 +157,80 @@ WantedBy=default.target
 systemctl --user enable reachy-mini-daemon
 loginctl enable-linger $USER   # start service at boot without login
 ```
+
+### Installing webrtcsink
+
+The `webrtcsink` GStreamer element is required for WebRTC camera streaming. It is **not** available in Debian/Ubuntu package repos — you need to install it manually.
+
+**Option A: Download the pre-built binary** (Debian Trixie / ARM64 only)
+
+```bash
+# Download from the GitHub release
+curl -L -o libgstrswebrtc.so \
+  https://github.com/emoods/reachy_mini/releases/download/standalone-v1.0/libgstrswebrtc.so
+
+# Install it
+sudo mkdir -p /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0
+sudo cp libgstrswebrtc.so /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0/
+
+# Also install the ICE agent (required for WebRTC connectivity)
+sudo apt install gstreamer1.0-nice
+
+# Verify
+GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0 \
+  gst-inspect-1.0 webrtcsink
+```
+
+> The pre-built binary is compiled against GStreamer 1.26.x on Debian Trixie (13). If your Pi runs a different Debian version or GStreamer version, build from source instead.
+
+**Option B: Build from source** (any Debian version or architecture)
+
+See [Building webrtcsink from source](#building-webrtcsink-from-source) below.
+
+### Building webrtcsink from source
+
+A Dockerfile is provided at [`docker/Dockerfile.gst-webrtc`](docker/Dockerfile.gst-webrtc) for cross-compiling on an x86 machine using Docker + QEMU emulation. This is much faster than building natively on the Pi (~30 min on a modern PC vs hours on a Pi 4).
+
+The Dockerfile has two build args you can override:
+
+| Build arg | Default | What it controls |
+|-----------|---------|------------------|
+| `DEBIAN_VERSION` | `trixie` | Debian release — must match your Pi. Controls which GStreamer version the plugin links against. |
+| `GST_PLUGINS_RS_VERSION` | `0.14.1` | Git tag from [gst-plugins-rs](https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/tags). Must be compatible with your GStreamer version. |
+
+**Rough version compatibility:**
+
+| Debian release | GStreamer version | gst-plugins-rs tag |
+|----------------|-------------------|--------------------|
+| Trixie (13) | 1.26.x | 0.14.x |
+| Bookworm (12) | 1.22.x | 0.12.x or 0.11.x |
+| Bullseye (11) | 1.18.x | 0.9.x or 0.8.x |
+
+```bash
+# Build for Debian Trixie (default):
+docker buildx build --platform linux/arm64 \
+  -f docker/Dockerfile.gst-webrtc \
+  -t gst-webrtc-build . --load
+
+# Or override for a different Debian version:
+docker buildx build --platform linux/arm64 \
+  --build-arg DEBIAN_VERSION=bookworm \
+  --build-arg GST_PLUGINS_RS_VERSION=0.12.8 \
+  -f docker/Dockerfile.gst-webrtc \
+  -t gst-webrtc-build . --load
+
+# Extract the .so:
+docker create --name gst-extract gst-webrtc-build true
+docker cp gst-extract:/output/libgstrswebrtc.so .
+docker rm gst-extract
+
+# Copy to your Pi and install:
+scp libgstrswebrtc.so pi@<your-pi-ip>:/tmp/
+ssh pi@<your-pi-ip> "sudo mkdir -p /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0 \
+  && sudo cp /tmp/libgstrswebrtc.so /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0/"
+```
+
+> **Note:** Cross-compilation uses QEMU user-mode emulation. Docker Desktop on macOS/Windows includes this by default. On Linux, install `qemu-user-static` and run `docker run --privileged --rm tonistiigi/binfmt --install all`.
 
 ### Platform notes and known issues
 

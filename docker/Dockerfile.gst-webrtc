@@ -1,0 +1,137 @@
+# =============================================================================
+# Cross-compile gst-plugin-webrtc (webrtcsink) for ARM64
+# =============================================================================
+#
+# This builds the GStreamer Rust WebRTC plugin (webrtcsink) from source.
+# The resulting libgstrswebrtc.so can be dropped onto a Raspberry Pi
+# so the reachy-mini daemon can stream camera video over WebRTC.
+#
+# WHY: The webrtcsink element is not packaged in Debian/Ubuntu repos.
+#      Building natively on a Raspberry Pi takes many hours.
+#      Cross-compiling via Docker + QEMU takes ~30 min on a modern x86 PC.
+#
+# LICENSE: gst-plugins-rs is MPL-2.0 / Apache-2.0 / MIT
+# SOURCE:  https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs
+#
+# =============================================================================
+#
+# QUICK START (from repo root):
+#
+#   1. Build the image (cross-compile for ARM64):
+#
+#      docker buildx build --platform linux/arm64 \
+#        -f docker/Dockerfile.gst-webrtc \
+#        -t gst-webrtc-build . --load
+#
+#   2. Extract the .so file:
+#
+#      docker create --name gst-extract gst-webrtc-build true
+#      docker cp gst-extract:/output/libgstrswebrtc.so .
+#      docker rm gst-extract
+#
+#   3. Copy to your Raspberry Pi and install:
+#
+#      scp libgstrswebrtc.so pi@<your-pi-ip>:/tmp/
+#      ssh pi@<your-pi-ip> "sudo mkdir -p /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0 \
+#        && sudo cp /tmp/libgstrswebrtc.so /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0/"
+#
+#   4. Verify:
+#
+#      GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0 \
+#        gst-inspect-1.0 webrtcsink
+#
+# =============================================================================
+#
+# CUSTOMIZING THIS BUILD
+#
+#   Override these at build time with --build-arg:
+#
+#     docker buildx build --platform linux/arm64 \
+#       --build-arg DEBIAN_VERSION=bookworm \
+#       --build-arg GST_PLUGINS_RS_VERSION=0.14.5 \
+#       -f docker/Dockerfile.gst-webrtc \
+#       -t gst-webrtc-build . --load
+#
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# DEBIAN_VERSION: The Debian release to build against.
+#   Must match the Debian version running on your Raspberry Pi!
+#   Examples: trixie (13), bookworm (12), bullseye (11)
+#   The GStreamer dev libraries come from this release's repos,
+#   so the built .so will be linked against that version of GStreamer.
+# ---------------------------------------------------------------------------
+ARG DEBIAN_VERSION=trixie
+
+# ---------------------------------------------------------------------------
+# GST_PLUGINS_RS_VERSION: The git tag to check out from gst-plugins-rs.
+#   This should be compatible with the GStreamer version in your Debian release.
+#   Check https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/tags
+#
+#   Rough compatibility:
+#     Debian Trixie  (GStreamer 1.26.x) → 0.14.x
+#     Debian Bookworm (GStreamer 1.22.x) → 0.12.x or 0.11.x
+#     Debian Bullseye (GStreamer 1.18.x) → 0.9.x or 0.8.x
+# ---------------------------------------------------------------------------
+ARG GST_PLUGINS_RS_VERSION=0.14.1
+
+FROM debian:${DEBIAN_VERSION}
+
+# Re-declare ARGs after FROM (Docker scoping rule)
+ARG GST_PLUGINS_RS_VERSION
+
+# ---------------------------------------------------------------------------
+# Step 1: Install build dependencies
+#   - build-essential: gcc, make, etc.
+#   - libgstreamer*-dev: GStreamer headers (must match target Pi's version)
+#   - libnice-dev: ICE agent (required for WebRTC)
+#   - libssl-dev: TLS support for signalling
+#   - libx264-dev, libvpx-dev, libopus-dev: codec support
+# ---------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    ca-certificates \
+    pkg-config \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    libglib2.0-dev \
+    libssl-dev \
+    libnice-dev \
+    libx264-dev \
+    libvpx-dev \
+    libopus-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Step 2: Install Rust toolchain
+#   cargo-c provides "cargo cbuild" which produces a proper shared library
+#   (.so) with pkg-config files, rather than a plain Rust cdylib.
+# ---------------------------------------------------------------------------
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN cargo install cargo-c
+
+# ---------------------------------------------------------------------------
+# Step 3: Clone gst-plugins-rs and checkout the target version
+# ---------------------------------------------------------------------------
+RUN git clone https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git /gst-plugins-rs
+WORKDIR /gst-plugins-rs
+RUN git checkout ${GST_PLUGINS_RS_VERSION}
+
+# ---------------------------------------------------------------------------
+# Step 4: Build ONLY the webrtc plugin
+#   This produces webrtcsink, webrtcsrc, and the built-in signalling server.
+#   Building just this one plugin is much faster than building all of
+#   gst-plugins-rs (~30 min vs hours under QEMU emulation).
+# ---------------------------------------------------------------------------
+RUN cargo cbuild -p gst-plugin-webrtc --release
+
+# ---------------------------------------------------------------------------
+# Step 5: Copy the .so to /output for easy extraction with "docker cp"
+# ---------------------------------------------------------------------------
+RUN mkdir -p /output && \
+    find target -name "libgstrswebrtc.so" -exec cp {} /output/ \; && \
+    ls -lh /output/
