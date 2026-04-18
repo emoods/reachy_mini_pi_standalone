@@ -133,6 +133,16 @@ sudo apt install -y \
 
 ### Quick start
 
+**Option A: Automated install** (recommended)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/emoods/reachy_mini/main/scripts/install-standalone.sh | bash
+```
+
+This installs everything in one go: system packages, udev rules, webrtcsink, the repository, Python dependencies, and a systemd service. Takes ~2-3 minutes. See [`scripts/install-standalone.sh`](scripts/install-standalone.sh) for details.
+
+**Option B: Manual install**
+
 ```bash
 # Clone and install
 git clone https://github.com/pollen-robotics/reachy_mini.git
