@@ -3,7 +3,7 @@
 # install-standalone.sh — One-command setup for Reachy Mini Lite on a standalone Raspberry Pi
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/emoods/reachy_mini/main/scripts/install-standalone.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/emoods/reachy_mini_pi_standalone/main/scripts/install-standalone.sh | bash
 #
 #   Or clone the repo first and run locally:
 #   ./scripts/install-standalone.sh
@@ -46,7 +46,7 @@ set -euo pipefail
 REACHY_DIR="${REACHY_DIR:-$HOME/reachy_mini}"
 
 # GitHub repository to clone from
-REACHY_REPO="${REACHY_REPO:-https://github.com/emoods/reachy_mini.git}"
+REACHY_REPO="${REACHY_REPO:-https://github.com/emoods/reachy_mini_pi_standalone.git}"
 
 # Branch to checkout
 REACHY_BRANCH="${REACHY_BRANCH:-main}"
@@ -55,7 +55,7 @@ REACHY_BRANCH="${REACHY_BRANCH:-main}"
 GST_PLUGIN_DIR="${GST_PLUGIN_DIR:-/opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0}"
 
 # URL for the pre-built webrtcsink binary
-WEBRTCSINK_URL="${WEBRTCSINK_URL:-https://github.com/emoods/reachy_mini/releases/download/standalone-v1.0/libgstrswebrtc.so}"
+WEBRTCSINK_URL="${WEBRTCSINK_URL:-https://github.com/emoods/reachy_mini_pi_standalone/releases/download/standalone-v1.0/libgstrswebrtc.so}"
 
 # systemd service name
 SERVICE_NAME="reachy-mini-daemon"
@@ -115,7 +115,7 @@ log "OS: ${PRETTY_NAME:-$ID $VERSION_ID}"
 if [ "${VERSION_ID:-}" != "13" ]; then
     warn "Expected Debian 13 (Trixie). Detected: ${VERSION_CODENAME:-$VERSION_ID}."
     warn "The pre-built webrtcsink binary may not work. You may need to build from source."
-    warn "See: https://github.com/emoods/reachy_mini#building-webrtcsink-from-source"
+    warn "See: https://github.com/emoods/reachy_mini_pi_standalone#building-webrtcsink-from-source"
     if [ -t 0 ]; then
         # Interactive terminal — ask the user
         echo ""

@@ -136,7 +136,7 @@ sudo apt install -y \
 **Option A: Automated install** (recommended)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/emoods/reachy_mini/main/scripts/install-standalone.sh | bash
+curl -sSL https://raw.githubusercontent.com/emoods/reachy_mini_pi_standalone/main/scripts/install-standalone.sh | bash
 ```
 
 This installs everything in one go: system packages, udev rules, webrtcsink, the repository, Python dependencies, and a systemd service. Takes ~2-3 minutes. See [`scripts/install-standalone.sh`](scripts/install-standalone.sh) for details.
@@ -202,7 +202,7 @@ The `webrtcsink` GStreamer element is required for WebRTC camera streaming. It i
 ```bash
 # Download from the GitHub release
 curl -L -o libgstrswebrtc.so \
-  https://github.com/emoods/reachy_mini/releases/download/standalone-v1.0/libgstrswebrtc.so
+  https://github.com/emoods/reachy_mini_pi_standalone/releases/download/standalone-v1.0/libgstrswebrtc.so
 
 # Install it
 sudo mkdir -p /opt/gst-plugins-rs/lib/aarch64-linux-gnu/gstreamer-1.0
