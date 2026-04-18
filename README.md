@@ -101,10 +101,35 @@ The `--standalone` flag:
 
 | Component | Details |
 |-----------|---------|
-| **Board** | Raspberry Pi 4 or Pi 5 (4GB+ RAM recommended), Raspberry Pi OS or Debian Trixie |
-| **GStreamer** | `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, `gstreamer1.0-nice` |
+| **Board** | Raspberry Pi 3/4/5 (4GB+ RAM recommended), 64-bit Raspberry Pi OS or Debian Trixie |
+| **System packages** | See [apt install](#system-dependencies) below |
 | **webrtcsink** | `gst-plugins-rs` v0.14.x — [download pre-built binary](#installing-webrtcsink) or [build from source](#building-webrtcsink-from-source) |
 | **udev rules** | Grant USB access to the Lite's audio/camera devices (VID `38fb`) |
+
+### System dependencies
+
+```bash
+# Build tools and runtime libraries for reachy_mini Python packages
+sudo apt install -y \
+  git git-lfs pkg-config cmake \
+  libcairo2-dev libgl1 libportaudio2
+
+# GObject introspection (required for GStreamer Python bindings)
+sudo apt install -y \
+  libgirepository1.0-dev gir1.2-glib-2.0 libglib2.0-dev
+
+# GStreamer runtime + tools + introspection typelibs
+sudo apt install -y \
+  gstreamer1.0-tools \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-alsa \
+  gstreamer1.0-pipewire \
+  gstreamer1.0-nice \
+  gir1.2-gstreamer-1.0 \
+  gir1.2-gst-plugins-base-1.0
+```
 
 ### Quick start
 
