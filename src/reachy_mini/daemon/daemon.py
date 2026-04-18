@@ -67,7 +67,7 @@ class Daemon:
         self._status = DaemonStatus(
             robot_name=robot_name,
             state=DaemonState.NOT_INITIALIZED,
-            wireless_version=wireless_version,
+            wireless_version=True,  # Patched: report as wireless so desktop app enables WebRTC
             desktop_app_daemon=desktop_app_daemon,
             simulation_enabled=None,
             mockup_sim_enabled=None,
